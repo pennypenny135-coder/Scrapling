@@ -1,6 +1,6 @@
 from scrapling import Fetcher
 
-def handler(request):
+def GET(request):
     # 攞 URL parameter
     url = request.args.get('url')
     
@@ -11,7 +11,7 @@ def handler(request):
     fetcher = Fetcher()
     response = fetcher.get(url)
     
-    # 解析 Yahoo 新聞標題（selector 可能要調整）
+    # 解析 HTML（Yahoo 新聞 selector 可能要調整）
     titles = response.css('h3 a').getall()
     links = response.css('h3 a').attribs('href').getall()
     
@@ -23,7 +23,4 @@ def handler(request):
             'link': link
         })
     
-    return {
-        'status': 200,
-        'data': news
-    }
+    return {'status': 200, 'data': news}
