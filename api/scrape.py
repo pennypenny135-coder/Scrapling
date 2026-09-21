@@ -1,26 +1,25 @@
 from scrapling import Fetcher
 
 def GET(request):
-    # 攞 URL parameter
     url = request.args.get('url')
     
     if not url:
         return {'error': 'Missing url parameter'}, 400
     
-    # 用 Scrapling 爬
-    fetcher = Fetcher()
-    response = fetcher.get(url)
+    try:
+        fetcher = Fetcher()
+        response = fetcher.get(url)
+        
+        # 嘗試多個 selector（Yahoo 結構可能會變）
+        titles = response.css('h3 a').getall()
+        links = response.css('h3 a').attribs('href').getall()
+        
+        news = []
+        for t, l in zip(titles, links):
+            if t and l:
+                news.append({'title': t, 'link': l})
+        
+        return {'status': 200, 'data': news}
     
-    # 解析 HTML（Yahoo 新聞 selector 可能要調整）
-    titles = response.css('h3 a').getall()
-    links = response.css('h3 a').attribs('href').getall()
-    
-    # 組裝數據
-    news = []
-    for title, link in zip(titles, links):
-        news.append({
-            'title': title,
-            'link': link
-        })
-    
-    return {'status': 200, 'data': news}
+    except Exception as e:
+        return {'error': str(e)}, 500
