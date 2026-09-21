@@ -22,3 +22,6 @@ def GET(request):
     
     except Exception as e:
         return {'error': str(e)}, 500
+
+# 加呢條線！
+handler = GET
