@@ -1,0 +1,12 @@
+{
+  "functions": {
+    "api/scrape.py": {
+      "runtime": "vercel-python@5.0.0"
+    }
+  },
+  "build": {
+    "env": {
+      "PIP_INSTALLER": "pip"
+    }
+  }
+}
