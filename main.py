@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Query, HTTPException
 from urllib.request import Request, urlopen
 from urllib.parse import urlsplit, urlunsplit, quote, urljoin
-from html.parser import HTMLParser
+from lxml import html
+
 
 app = FastAPI()
 
@@ -24,45 +25,45 @@ def normalize_url(url: str) -> str:
     ))
 
 
-class LinkParser(HTMLParser):
-    def __init__(self, base_url: str):
-        super().__init__()
-        self.base_url = base_url
-        self.links = []
-        self.current_href = None
-        self.current_text = []
+def extract_tables(tree):
+    tables = []
 
-    def handle_starttag(self, tag, attrs):
-        if tag != "a":
-            return
+    for table in tree.xpath("//table"):
+        rows = []
 
-        attributes = dict(attrs)
-        self.current_href = attributes.get("href")
-        self.current_text = []
+        for tr in table.xpath(".//tr"):
+            cells = []
 
-    def handle_data(self, data):
-        if self.current_href is not None:
-            self.current_text.append(data)
+            for cell in tr.xpath("./th | ./td"):
+                text = " ".join(
+                    cell.text_content().replace("\xa0", " ").split()
+                )
+                cells.append(text)
 
-    def handle_endtag(self, tag):
-        if tag != "a" or not self.current_href:
-            return
+            if cells:
+                rows.append(cells)
 
-        title = " ".join("".join(self.current_text).split())
-        link = urljoin(self.base_url, self.current_href)
+        if rows:
+            tables.append(rows)
 
-        if title:
-            self.links.append({
-                "title": title,
-                "link": link
-            })
+    return tables
 
-        self.current_href = None
-        self.current_text = []
+
+def extract_text(tree):
+    body = tree.xpath("//body")
+
+    if not body:
+        return ""
+
+    text = body[0].text_content().replace("\xa0", " ")
+    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
 
 @app.get("/")
-def scrape(url: str = Query(...)):
+def scrape(
+    url: str = Query(...),
+    mode: str = Query("links", pattern="^(links|tables|text|all)$")
+):
     safe_url = normalize_url(url)
 
     request = Request(
@@ -81,29 +82,51 @@ def scrape(url: str = Query(...)):
         with urlopen(request, timeout=20) as response:
             status_code = response.status
             final_url = response.url
-            html = response.read().decode("utf-8", errors="ignore")
+            page_html = response.read().decode("utf-8", errors="ignore")
 
-        parser = LinkParser(final_url)
-        parser.feed(html)
-
-        unique_links = []
-        seen = set()
-
-        for item in parser.links:
-            if item["link"] not in seen:
-                seen.add(item["link"])
-                unique_links.append(item)
-
-        return {
+        tree = html.fromstring(page_html)
+        result = {
             "ok": True,
             "source": safe_url,
             "final_url": final_url,
             "http_status": status_code,
-            "html_length": len(html),
-            "link_count": len(unique_links),
-            "data": unique_links[:50]
+            "html_length": len(page_html),
+            "mode": mode
         }
 
+        if mode in ("links", "all"):
+            links = []
+            seen = set()
+
+            for element in tree.xpath("//a[@href]"):
+                href = element.get("href")
+                title = " ".join(
+                    element.text_content().replace("\xa0", " ").split()
+                )
+                link = urljoin(final_url, href)
+
+                if link not in seen:
+                    seen.add(link)
+                    links.append({
+                        "title": title,
+                        "link": link
+                    })
+
+            result["link_count"] = len(links)
+            result["data"] = links[:50]
+
+        if mode in ("tables", "all"):
+            tables = extract_tables(tree)
+            result["table_count"] = len(tables)
+            result["tables"] = tables
+
+        if mode in ("text", "all"):
+            result["text"] = extract_text(tree)
+
+        return result
+
+    except HTTPException:
+        raise
     except Exception as error:
         raise HTTPException(
             status_code=502,
